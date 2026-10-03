@@ -1,0 +1,59 @@
+# Makefile for ARM (XScale) assembly + C, run under qemu-arm
+#
+#   make              build ./@TARGET@   (same as: make all)
+#   make test         build and run under qemu-arm        (override: make test ARGS="5" IN=infile.txt)
+#   make debug        run under qemu-arm, waiting for gdb on port (your uid + 20000)
+#   make clean        remove everything that make produced
+#   make foo.c.s      compile foo.c to assembly, to study what gcc generates (never overwrites your .s files)
+#
+# Recipe lines MUST start with a TAB character, not spaces.
+
+TARGET  := @TARGET@
+OBJ     := @OBJ@
+
+CC      := arm-linux-gnueabi-gcc
+AS      := arm-linux-gnueabi-as
+
+# -mcpu=xscale: without it the assembler silently accepts instructions XScale does not
+# have (e.g. 'mov r0, #0x1234' becomes MOVW).
+CFLAGS  = -mcpu=xscale -O0 -Wall
+ASFLAGS = -mcpu=xscale -alh=$*.lis -L
+LDFLAGS = -g
+
+QEMU    := qemu-arm -L /usr/arm-linux-gnueabi
+ARGS    ?= @ARGS@
+IN      ?= @IN@
+PORT    := $(shell echo $$(( $$(id -u) + 20000 )))
+
+.PHONY: all test debug clean distclean
+
+all:	$(TARGET)
+
+test:	all
+	$(QEMU) ./$(TARGET) $(ARGS) $(if $(IN),< $(IN))
+
+debug:	all
+	@echo "qemu-arm waits for gdb on port $(PORT). In a second terminal:"
+	@echo "    gdb-multiarch -ex 'set sysroot /usr/arm-linux-gnueabi' -ex 'target remote localhost:$(PORT)' $(TARGET)"
+	$(QEMU) -g $(PORT) ./$(TARGET) $(ARGS) $(if $(IN),< $(IN))
+
+allhfiles := $(wildcard *.h)
+
+$(TARGET):	$(OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^
+
+%.o:	%.s
+	$(AS) -g $(ASFLAGS) -o $@ $<
+
+%.o:	%.c $(allhfiles)
+	$(CC) -g $(CFLAGS) -o $@ -c $<
+
+# Named foo.c.s (not foo.s) so a C file can never overwrite a hand-written foo.s.
+%.c.s:	%.c $(allhfiles)
+	$(CC) $(CFLAGS) -fomit-frame-pointer -o $@ -S $<
+
+clean:
+	$(RM) $(TARGET) *.o *.lis *.c.s
+
+distclean:	clean
+	$(RM) *~
